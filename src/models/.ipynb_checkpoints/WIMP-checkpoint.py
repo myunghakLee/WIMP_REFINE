@@ -62,6 +62,7 @@ class WIMP(pl.LightningModule):
 
     def __init__(self, hparams, hidden_dim=128):
         super(WIMP, self).__init__()
+        
         self.hparams = hparams
 
         self.encoder = WIMPEncoder(self.hparams)
@@ -146,8 +147,24 @@ class WIMP(pl.LightningModule):
         return result
 
     def test_step(self, batch, batch_idx):
-        # TODO: Implement generation of leaderboard submission formats
-        return -1
+        # Compute predictions
+        input_dict, label = batch
+        preds, waypoint_preds, all_dist_params = self(**input_dict)
+    
+    
+        if self.hparams.save_json:
+            for i, p in enumerate(preds):
+                write_dict = {}
+                write_dict['preds'] = p.tolist() 
+                write_dict['waypoint_preds'] = [waypoint_preds[0][i].tolist(), waypoint_preds[1][i].tolist()]
+                write_dict['rotation'] = input_dict['ifc_helpers']['rotation'][i].tolist()
+                write_dict['translation'] = input_dict['ifc_helpers']['translation'][i].tolist()
+                write_dict['csv_file'] = input_dict['ifc_helpers']['csv_file'][i]
+                write_dict['city'] = str(input_dict['ifc_helpers']['city'][i])
+                write_dict['agent_labels'] = label['agent_labels'].tolist()
+                import json
+                with open(self.hparams.save_dir + "/" + str(input_dict['ifc_helpers']['idx'][i]) + '.json', 'w') as json_file:
+                    json.dump(write_dict, json_file, indent=4)      
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
@@ -192,11 +209,11 @@ class WIMP(pl.LightningModule):
         
         f_prediction = agent_preds.detach()[:,:,-1,:]
         
-        X_arr = repeat(f_prediction[:,:,0],k) - f_prediction[:,:,0].repeat(1,k).flatten()
-        Y_arr = repeat(f_prediction[:,:,1],k) - f_prediction[:,:,1].repeat(1,k).flatten()
+        X_arr = self.repeat(f_prediction[:,:,0],k) - f_prediction[:,:,0].repeat(1,k).flatten()
+        Y_arr = self.repeat(f_prediction[:,:,1],k) - f_prediction[:,:,1].repeat(1,k).flatten()
 
 #         f_dist = torch.mean((min_dist_threshold+1) / (((self.repeat(f_prediction[:,:,0],k) - f_prediction[:,:,0].repeat(1,k).flatten()) ** 2 + (self.repeat(f_prediction[:,:,1],k) - f_prediction[:,:,1].repeat(1,k).flatten()) ** 2) ** 0.5 +1))
-        f_dist = (min_dist_threshold) / ((X_arr ** 2 + Y_arr ** 2) ** 0.5 ).reshape(6,6)
+        f_dist = (min_dist_threshold) / ((X_arr ** 2 + Y_arr ** 2) ** 0.5 ).reshape(self.hparams.batch_size,6,6)
         f_dist = torch.sum(torch.triu(f_dist, diagonal=1)) / (k*(k-1))
         total_loss = agent_loss + waypoint_loss + f_dist*0.5
 
@@ -233,3 +250,18 @@ class WIMP(pl.LightningModule):
                             target_dict['agent_labels'])
 
         return total_loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr)
+    
+    
+    def denormalization(arr, angle, translation):
+
+        theta = (angle)/180*math.pi
+        c, s = np.cos(theta), np.sin(theta)
+        R = np.array(((c, -s), (s, c)))
+
+        #rotate
+        arr = np.array(R.dot(arr.transpose())).transpose()
+        #translate
+        arr += translation
+    #     arr[...,0] += (AGENT[19,0] - AGENT[0,0])
+    #     arr[...,1] += (AGENT[19,1] - AGENT[0,1])
+        return arr    

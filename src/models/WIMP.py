@@ -213,9 +213,9 @@ class WIMP(pl.LightningModule):
         Y_arr = self.repeat(f_prediction[:,:,1],k) - f_prediction[:,:,1].repeat(1,k).flatten()
 
 #         f_dist = torch.mean((min_dist_threshold+1) / (((self.repeat(f_prediction[:,:,0],k) - f_prediction[:,:,0].repeat(1,k).flatten()) ** 2 + (self.repeat(f_prediction[:,:,1],k) - f_prediction[:,:,1].repeat(1,k).flatten()) ** 2) ** 0.5 +1))
-        f_dist = (min_dist_threshold) / ((X_arr ** 2 + Y_arr ** 2) ** 0.5 ).reshape(self.hparams.batch_size,6,6)
+        f_dist = (min_dist_threshold) / ((X_arr ** 2 + Y_arr ** 2) ** 0.5 ).reshape(-1,6,6)
         f_dist = torch.sum(torch.triu(f_dist, diagonal=1)) / (k*(k-1))
-        total_loss = agent_loss + waypoint_loss + f_dist*0.5
+        total_loss = agent_loss + waypoint_loss + f_dist*0.01
 
         # Compute metrics
         with torch.no_grad():
